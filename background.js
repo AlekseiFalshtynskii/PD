@@ -1,6 +1,7 @@
 var RESOLUTION = 'RESOLUTION';
 var tabs = {};
 var tabId;
+var downloadingQueue = [];
 
 chrome.downloads.setShelfEnabled(false);
 
@@ -17,14 +18,19 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     if (message.msgId == 'showPopup') {
         sendResponse({ contentData: tab().contentData, resolutions: tab().resolutions });
     } else if (message.msgId == 'clickDownload') {
-        tab().buttonId = message.buttonId;
-        var m3u8Url = tab().m3u8Urls[tab().buttonId];
+        var downloadingInfo = {buttonId: message.buttonId};
+        downloadingInfo.contentData = tab().contentData;
+        downloadingInfo.resolutions = tab().resolutions;
+        var m3u8Url = tab().m3u8Urls[downloadingInfo.buttonId];
         fetch(m3u8Url).then(r => r.text()).then(r => {
-            tab().tsUrls = r.split('\n').filter(s => !s.startsWith('#'));
-            tab().httpUrl = m3u8Url.substr(0, m3u8Url.lastIndexOf('/') + 1);
-            tab().index = 0;
-            sendResponse({ buttonId: message.buttonId, parts: tab().tsUrls.length, part: 0 });
-            downloadPart(tab().index);
+            downloadingInfo.tsUrls = r.split('\n').filter(s => !s.startsWith('#'));
+            downloadingInfo.httpUrl = m3u8Url.substr(0, m3u8Url.lastIndexOf('/') + 1);
+            downloadingInfo.index = 0;
+            sendResponse({ buttonId: downloadingInfo.buttonId, parts: downloadingInfo.tsUrls.length, part: 0 });
+            downloadingQueue.push(downloadingInfo);
+            if (downloadingQueue.length == 1) {
+                downloadPart(currentDownloadingInfo().index);
+            }
         });
     }
 });
@@ -49,11 +55,11 @@ chrome.webRequest.onBeforeRequest.addListener(
 );
 
 chrome.downloads.onChanged.addListener(function ({ id, state }) {
-    if (id == tab().downloadId && state && state.current == 'complete') {
-        console.log('complete ' + tab().tsUrls[tab().index]);
-        chrome.runtime.sendMessage({ msgId: 'completePart', parts: tab().tsUrls.length, part: tab().index + 1});
-        eraseDownload(tab().index);
-        downloadPart(++tab().index);
+    if (id == currentDownloadingInfo().downloadId && state && state.current == 'complete') {
+        console.log('complete ' + currentDownloadingInfo().tsUrls[currentDownloadingInfo().index]);
+        chrome.runtime.sendMessage({ msgId: 'completePart', parts: currentDownloadingInfo().tsUrls.length, part: currentDownloadingInfo().index + 1});
+        eraseDownload(currentDownloadingInfo().index);
+        downloadPart(++currentDownloadingInfo().index);
     }
 });
 
@@ -71,14 +77,18 @@ function disablePopup() {
 }
 
 function downloadPart(i) {
-    if (i == tab().tsUrls.length - 1) {
+    if (i == currentDownloadingInfo().tsUrls.length - 1) {
         console.log('COMPLETE!!!');
+        downloadingQueue.shift();
+        if (downloadingQueue.length > 0) {
+            downloadPart(currentDownloadingInfo().index);
+        }
     } else {
-        console.log('downloading ' + tab().tsUrls[i]);
+        console.log('downloading ' + currentDownloadingInfo().tsUrls[i]);
         var url = getUrl(i);
-        var filename = `${clearName(tab().contentData.name)}/${clearName(tab().contentData.season)}/${clearName(tab().contentData.episode)}/${tab().resolutions[tab().buttonId]}/${tab().tsUrls[i]}`;
+        var filename = `${clearName(currentDownloadingInfo().contentData.name)}/${clearName(currentDownloadingInfo().contentData.season)}/${clearName(currentDownloadingInfo().contentData.episode)}/${currentDownloadingInfo().resolutions[currentDownloadingInfo().buttonId]}/${currentDownloadingInfo().tsUrls[i]}`;
         chrome.downloads.download({ url: url, filename: filename }, function (id) {
-            tab().downloadId = id;
+            currentDownloadingInfo().downloadId = id;
         });
     }
 }
@@ -91,16 +101,20 @@ function initTab() {
     this.tabs[this.tabId] = {};
 }
 
+function currentDownloadingInfo() {
+    return downloadingQueue[0];
+}
+
 function clearName(s) {
     return s.replaceAll(/[\/:*?"><|]/g, '');
 }
 
 function eraseDownload(i) {
-    chrome.downloads.erase({ query: [tab().tsUrls[i]] }, function (eraseIds) {
+    chrome.downloads.erase({ query: [getUrl(i)] }, function (eraseIds) {
         console.log(JSON.stringify(eraseIds));
     });
 }
 
 function getUrl(i) {
-    return tab().httpUrl + tab().tsUrls[i];
+    return currentDownloadingInfo().httpUrl + currentDownloadingInfo().tsUrls[i];
 }
