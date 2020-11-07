@@ -75,7 +75,7 @@ function disablePopup() {
 }
 
 function downloadPart(i) {
-    if (i == 6) {
+    if (i == currentDownloadingInfo().tsUrls.length - 1) {
         console.log('COMPLETE!!!');
         downloadingQueue.shift();
         if (downloadingQueue.length > 0) {
