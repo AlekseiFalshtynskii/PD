@@ -18,15 +18,13 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     if (message.msgId == 'showPopup') {
         sendResponse({ contentData: tab().contentData, resolutions: tab().resolutions });
     } else if (message.msgId == 'clickDownload') {
-        var downloadingInfo = {buttonId: message.buttonId};
-        downloadingInfo.contentData = tab().contentData;
-        downloadingInfo.resolutions = tab().resolutions;
-        var m3u8Url = tab().m3u8Urls[downloadingInfo.buttonId];
+        var downloadingInfo = {contentData: tab().contentData, resolution: tab().resolutions[message.buttonId]};
+        var m3u8Url = tab().m3u8Urls[message.buttonId];
         fetch(m3u8Url).then(r => r.text()).then(r => {
             downloadingInfo.tsUrls = r.split('\n').filter(s => !s.startsWith('#'));
             downloadingInfo.httpUrl = m3u8Url.substr(0, m3u8Url.lastIndexOf('/') + 1);
             downloadingInfo.index = 0;
-            sendResponse({ buttonId: downloadingInfo.buttonId, parts: downloadingInfo.tsUrls.length, part: 0 });
+            sendResponse({ buttonId: message.buttonId, parts: downloadingInfo.tsUrls.length, part: 0 });
             downloadingQueue.push(downloadingInfo);
             if (downloadingQueue.length == 1) {
                 downloadPart(currentDownloadingInfo().index);
@@ -77,7 +75,7 @@ function disablePopup() {
 }
 
 function downloadPart(i) {
-    if (i == currentDownloadingInfo().tsUrls.length - 1) {
+    if (i == 6) {
         console.log('COMPLETE!!!');
         downloadingQueue.shift();
         if (downloadingQueue.length > 0) {
@@ -86,7 +84,7 @@ function downloadPart(i) {
     } else {
         console.log('downloading ' + currentDownloadingInfo().tsUrls[i]);
         var url = getUrl(i);
-        var filename = `${clearName(currentDownloadingInfo().contentData.name)}/${clearName(currentDownloadingInfo().contentData.season)}/${clearName(currentDownloadingInfo().contentData.episode)}/${currentDownloadingInfo().resolutions[currentDownloadingInfo().buttonId]}/${currentDownloadingInfo().tsUrls[i]}`;
+        var filename = `${clearName(currentDownloadingInfo().contentData.name)}/${clearName(currentDownloadingInfo().contentData.season)}/${clearName(currentDownloadingInfo().contentData.episode)}/${currentDownloadingInfo().resolution}/${currentDownloadingInfo().tsUrls[i]}`;
         chrome.downloads.download({ url: url, filename: filename }, function (id) {
             currentDownloadingInfo().downloadId = id;
         });
